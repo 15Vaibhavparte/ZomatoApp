@@ -57,6 +57,7 @@ pipeline {
         
         stage ("Deploy to Kubernetes Cluster") {
             steps {
+                sh "kubectl create namespace prometheus-node-exporter --dry-run=client -o yaml | kubectl apply -f -"
                 // 1. Apply the baseline configurations from your GitHub repo
                 sh "kubectl apply -f Kubernetes/deployment.yaml"
                 sh "kubectl apply -f Kubernetes/service.yaml"
