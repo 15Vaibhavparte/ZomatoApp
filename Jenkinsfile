@@ -36,8 +36,13 @@ pipeline {
         stage ("Tag & Push to DockerHub") {
             steps {
                 script {
-                    withDockerRegistry(credentialsId: "${DOCKER_CREDS}") {
-                        // Tag and push using the dynamic BUILD_NUMBER variable
+                    // This securely grabs your 'docker' credential from Jenkins
+                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                        
+                        // Log in to DockerHub using the standard CLI
+                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                        
+                        // Tag and Push
                         sh "docker tag zomato ${IMAGE_REPO}:${IMAGE_TAG}"
                         sh "docker push ${IMAGE_REPO}:${IMAGE_TAG}"
                     }
@@ -47,8 +52,11 @@ pipeline {
         stage('Docker Scout Image') {
             steps {
                 script {
-                   withDockerRegistry(credentialsId: "${DOCKER_CREDS}", toolName: 'docker') {
-                       // Note: Single quotes changed to double quotes ("") so Groovy can interpolate the variables
+                   withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                       
+                       // Docker requires you to be logged in to pull vulnerability databases
+                       sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                       
                        sh "docker-scout quickview ${IMAGE_REPO}:${IMAGE_TAG}"
                        sh "docker-scout cves ${IMAGE_REPO}:${IMAGE_TAG}"
                        sh "docker-scout recommendations ${IMAGE_REPO}:${IMAGE_TAG}"
