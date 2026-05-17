@@ -33,34 +33,21 @@ pipeline {
                 sh "docker build -t zomato ."
             }
         }
-        stage ("Tag & Push to DockerHub") {
+        stage('Docker Build & Push') {
             steps {
                 script {
-                    // This securely grabs your 'docker' credential from Jenkins
-                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                    // Builds the image using your repo name and build number tag
+                    def app = docker.build("${IMAGE_REPO}:${IMAGE_TAG}")
+                    
+                    // Logs in to DockerHub using your credentials
+                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
                         
-                        // Log in to DockerHub using the standard CLI
-                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                        // Pushes the image with the specific Build Number (e.g., parte15/zomato:42)
+                        app.push()
                         
-                        // Tag and Push
-                        sh "docker tag zomato ${IMAGE_REPO}:${IMAGE_TAG}"
-                        sh "docker push ${IMAGE_REPO}:${IMAGE_TAG}"
+                        // Also pushes and overwrites the 'latest' tag (e.g., parte15/zomato:latest)
+                        app.push('latest')
                     }
-                }
-            }
-        }
-        stage('Docker Scout Image') {
-            steps {
-                script {
-                   withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-                       
-                       // Docker requires you to be logged in to pull vulnerability databases
-                       sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
-                       
-                       sh "docker-scout quickview ${IMAGE_REPO}:${IMAGE_TAG}"
-                       sh "docker-scout cves ${IMAGE_REPO}:${IMAGE_TAG}"
-                       sh "docker-scout recommendations ${IMAGE_REPO}:${IMAGE_TAG}"
-                   }
                 }
             }
         }
