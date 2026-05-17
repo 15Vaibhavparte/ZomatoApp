@@ -54,21 +54,6 @@ pipeline {
             }
         }
         
-        stage('Docker Scout Image') {
-            steps {
-                script {
-                   withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-                       
-                       sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
-                       
-                       // Scan the exact image we just built
-                       sh "docker-scout quickview ${IMAGE_REPO}:${IMAGE_TAG}"
-                       sh "docker-scout cves ${IMAGE_REPO}:${IMAGE_TAG}"
-                       sh "docker-scout recommendations ${IMAGE_REPO}:${IMAGE_TAG}"
-                   }
-                }
-            }
-        }
         
         stage ("Deploy to Kubernetes Cluster") {
             steps {
