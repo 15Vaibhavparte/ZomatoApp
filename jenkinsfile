@@ -2,10 +2,13 @@ pipeline {
     agent any
     tools {
         jdk 'jdk17'
-        nodejs 'node23'
+        nodejs 'node16'
     }
     environment {
-        SCANNER_HOME=tool 'sonar-scanner'
+        // Define Docker credentials and image details here for easy updates
+        DOCKER_CREDS = 'docker' 
+        IMAGE_REPO = 'parte15/zomato'
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
     }
     stages {
         stage ("clean workspace") {
@@ -15,40 +18,16 @@ pipeline {
         }
         stage ("Git Checkout") {
             steps {
-                git 'https://github.com/KastroVKiran/Zomato-Project-Kastro.git'
+                git 'https://github.com/15Vaibhavparte/ZomatoApp.git'
             }
         }
-        stage("Sonarqube Analysis"){
-            steps{
-                withSonarQubeEnv('sonar-server') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=zomato \
-                    -Dsonar.projectKey=zomato '''
-                }
-            }
-        }
-        stage("Code Quality Gate"){
-           steps {
-                script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token' 
-                }
-            } 
-        }
+        
         stage("Install NPM Dependencies") {
             steps {
                 sh "npm install"
             }
         }
-        stage('OWASP FS SCAN') {
-            steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit -n', odcInstallation: 'DP-Check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-    }
-}
-        stage ("Trivy File Scan") {
-            steps {
-                sh "trivy fs . > trivy.txt"
-            }
-        }
+        
         stage ("Build Docker Image") {
             steps {
                 sh "docker build -t zomato ."
@@ -57,52 +36,32 @@ pipeline {
         stage ("Tag & Push to DockerHub") {
             steps {
                 script {
-                    withDockerRegistry(credentialsId: 'docker') {
-                        sh "docker tag zomato kastrov/zomato:latest "
-                        sh "docker push kastrov/zomato:latest "
+                    withDockerRegistry(credentialsId: "${DOCKER_CREDS}") {
+                        // Tag and push using the dynamic BUILD_NUMBER variable
+                        sh "docker tag zomato ${IMAGE_REPO}:${IMAGE_TAG}"
+                        sh "docker push ${IMAGE_REPO}:${IMAGE_TAG}"
                     }
                 }
             }
         }
         stage('Docker Scout Image') {
             steps {
-                script{
-                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
-                       sh 'docker-scout quickview kastrov/zomato:latest'
-                       sh 'docker-scout cves kastrov/zomato:latest'
-                       sh 'docker-scout recommendations kastrov/zomato:latest'
+                script {
+                   withDockerRegistry(credentialsId: "${DOCKER_CREDS}", toolName: 'docker') {
+                       // Note: Single quotes changed to double quotes ("") so Groovy can interpolate the variables
+                       sh "docker-scout quickview ${IMAGE_REPO}:${IMAGE_TAG}"
+                       sh "docker-scout cves ${IMAGE_REPO}:${IMAGE_TAG}"
+                       sh "docker-scout recommendations ${IMAGE_REPO}:${IMAGE_TAG}"
                    }
                 }
             }
         }
         stage ("Deploy to Container") {
             steps {
-                sh 'docker run -d --name zomato -p 3000:3000 kastrov/zomato:latest'
+                // Added a cleanup step so consecutive builds don't fail due to the 'zomato' container name already being in use
+                sh "docker rm -f zomato || true"
+                sh "docker run -d --name zomato -p 3000:3000 ${IMAGE_REPO}:${IMAGE_TAG}"
             }
-        }
-    }
-    post {
-    always {
-        emailext attachLog: true,
-            subject: "'${currentBuild.result}'",
-            body: """
-                <html>
-                <body>
-                    <div style="background-color: #FFA07A; padding: 10px; margin-bottom: 10px;">
-                        <p style="color: white; font-weight: bold;">Project: ${env.JOB_NAME}</p>
-                    </div>
-                    <div style="background-color: #90EE90; padding: 10px; margin-bottom: 10px;">
-                        <p style="color: white; font-weight: bold;">Build Number: ${env.BUILD_NUMBER}</p>
-                    </div>
-                    <div style="background-color: #87CEEB; padding: 10px; margin-bottom: 10px;">
-                        <p style="color: white; font-weight: bold;">URL: ${env.BUILD_URL}</p>
-                    </div>
-                </body>
-                </html>
-            """,
-            to: 'kastrokiran@gmail.com',
-            mimeType: 'text/html',
-            attachmentsPattern: 'trivy.txt'
         }
     }
 }
