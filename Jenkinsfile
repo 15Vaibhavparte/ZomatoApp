@@ -4,7 +4,9 @@ pipeline {
         jdk 'jdk17'
         nodejs 'node16' // Using node16 to match your Docker container environment
     }
-    environment {        
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+        
         // Define Docker and Image details here
         DOCKER_CREDS = 'docker'
         IMAGE_REPO = 'parte15/zomato'
@@ -18,7 +20,7 @@ pipeline {
         }
         stage ("Git Checkout") {
             steps {
-                git 'https://github.com/15Vaibhavparte/ZomatoApp.git'
+                git branch: 'main', url: 'https://github.com/15Vaibhavparte/ZomatoApp.git'
             }
         }
         
