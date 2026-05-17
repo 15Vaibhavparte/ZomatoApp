@@ -2,11 +2,11 @@ pipeline {
     agent any
     tools {
         jdk 'jdk17'
-        nodejs 'node16'
+        nodejs 'node16' // Using node16 to match your Docker container environment
     }
-    environment {
-        // Define Docker credentials and image details here for easy updates
-        DOCKER_CREDS = 'docker' 
+    environment {        
+        // Define Docker and Image details here
+        DOCKER_CREDS = 'docker'
         IMAGE_REPO = 'parte15/zomato'
         IMAGE_TAG = "${env.BUILD_NUMBER}"
     }
@@ -18,7 +18,7 @@ pipeline {
         }
         stage ("Git Checkout") {
             steps {
-                git branch: 'main', url: 'https://github.com/15Vaibhavparte/ZomatoApp.git'
+                git 'https://github.com/15Vaibhavparte/ZomatoApp.git'
             }
         }
         
@@ -33,29 +33,56 @@ pipeline {
                 sh "docker build -t zomato ."
             }
         }
-        stage('Docker Build & Push') {
+        
+        stage ("Tag & Push to DockerHub") {
             steps {
                 script {
-                    // Builds the image using your repo name and build number tag
-                    def app = docker.build("${IMAGE_REPO}:${IMAGE_TAG}")
-                    
-                    // Logs in to DockerHub using your credentials
-                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
+                    // Securely inject Docker credentials using native Jenkins commands
+                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
                         
-                        // Pushes the image with the specific Build Number (e.g., parte15/zomato:42)
-                        app.push()
+                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
                         
-                        // Also pushes and overwrites the 'latest' tag (e.g., parte15/zomato:latest)
-                        app.push('latest')
+                        // Tag and push using the dynamic build number
+                        sh "docker tag zomato ${IMAGE_REPO}:${IMAGE_TAG}"
+                        sh "docker push ${IMAGE_REPO}:${IMAGE_TAG}"
+                        
+                        // Push 'latest' as a backup
+                        sh "docker tag zomato ${IMAGE_REPO}:latest"
+                        sh "docker push ${IMAGE_REPO}:latest"
                     }
                 }
             }
         }
-        stage ("Deploy to Container") {
+        
+        stage('Docker Scout Image') {
             steps {
-                // Added a cleanup step so consecutive builds don't fail due to the 'zomato' container name already being in use
-                sh "docker rm -f zomato || true"
-                sh "docker run -d --name zomato -p 3000:3000 ${IMAGE_REPO}:${IMAGE_TAG}"
+                script {
+                   withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                       
+                       sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                       
+                       // Scan the exact image we just built
+                       sh "docker-scout quickview ${IMAGE_REPO}:${IMAGE_TAG}"
+                       sh "docker-scout cves ${IMAGE_REPO}:${IMAGE_TAG}"
+                       sh "docker-scout recommendations ${IMAGE_REPO}:${IMAGE_TAG}"
+                   }
+                }
+            }
+        }
+        
+        stage ("Deploy to Kubernetes Cluster") {
+            steps {
+                // 1. Apply the baseline configurations from your GitHub repo
+                sh "kubectl apply -f Kubernetes/deployment.yaml"
+                sh "kubectl apply -f Kubernetes/service.yaml"
+                sh "kubectl apply -f Kubernetes/node-service.yaml"
+                
+                // 2. Force the deployment to use the exact image we just built & pushed
+                // Syntax: kubectl set image deployment/<Deployment-Name> <Container-Name>=<Image>
+                sh "kubectl set image deployment/zomato zomato=${IMAGE_REPO}:${IMAGE_TAG}"
+                
+                // 3. Monitor the rollout to ensure pods boot up successfully
+                sh "kubectl rollout status deployment/zomato"
             }
         }
     }
